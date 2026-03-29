@@ -1,4 +1,4 @@
-# HR Automation Workflow
+#  HireSphere - HR Automation Workflow
 
 This project automates the hiring pipeline using workflow automation.
 
