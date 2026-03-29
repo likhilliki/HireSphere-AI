@@ -1,0 +1,336 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json[\"resume \"].split('id=')[1] }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "88ebe0e0-a256-44b5-a703-9dfca8c4a779",
+      "name": "Download Resume PDF",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        304
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "45UhXaRaBNLF2WJX",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "id": "a6c4a823-7063-4e82-9aba-4e9eccea9de5",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{ $node[\"Extract PDF Text\"].json[\"text\"] }}",
+        "options": {
+          "systemMessage": "You are a specialized recruiter. The job role is: {{ $node[\"Google Form Trigger\"].json[\"Job_Role\"] }}. Analyze the resume text for this specific role. Output a JSON with 'score' (0-100) and 'status' (Shortlist)."
+        }
+      },
+      "id": "00c1209b-c0d9-470e-8ddf-41868921c6cb",
+      "name": "AI ATS Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ Number($json.score) }}",
+              "operation": "largerEqual"
+            }
+          ]
+        }
+      },
+      "id": "c196a4fd-3f97-407a-96e9-fd5e10fd01e1",
+      "name": "ATS Pass?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        32,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node[\"Google Form Trigger\"].json[\"email\"] }}",
+        "subject": "Next Step: Assessment",
+        "message": "=Congrats! \"Hi {{ $json[\"full name\"] }}, your resume scored {{ $json.score }}%. you shortlistedfor this opportunity Please complete your test here: [https://logiclooper-alpha.vercel.app]\"",
+        "options": {}
+      },
+      "id": "0682f6e7-b320-4c91-ae41-8197197fa17f",
+      "name": "Send Assessment Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        272,
+        176
+      ],
+      "webhookId": "173d91d2-50e6-43ec-aa84-94ca4b610951",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "sWPTeDRp3IX8NPL6",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hr-approval",
+        "options": {}
+      },
+      "id": "379810d6-f52f-4c27-8b29-a00a401530b8",
+      "name": "HR Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        512,
+        480
+      ],
+      "webhookId": "4c5c3806-3f4e-4129-ab3d-3bad438cf045"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -592,
+        512
+      ],
+      "id": "900b556d-15c3-4d14-8cf0-b494a30c4863",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "ij1Uw9wUVdspOX3z",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        528,
+        256
+      ],
+      "id": "bff824d5-523f-4c1c-af48-f4ca4e61c79a",
+      "name": "Wait",
+      "webhookId": "a87d1ae0-b2cc-4bc0-bac8-d846456ead41"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. Get the raw text from the AI\nconst rawResponse = $input.item.json.output || $input.item.json.text || \"\"; \n\ntry {\n  // 2. Extract only the JSON part (ignores the \"I cannot...\" text)\n  const jsonMatch = rawResponse.match(/\\{[\\s\\S]*\\}/);\n  const aiResult = JSON.parse(jsonMatch[0]);\n\n  // 3. REACH BACK to your Google Sheets node\n  // Ensure \"Google Form Trigger\" matches your first node's name exactly\n  const triggerData = $node[\"Google Form Trigger\"].json; \n\n  // 4. Merge them together so \"full name\" is available again\n  return {\n    ...triggerData, \n    ...aiResult\n  };\n\n} catch (error) {\n  // 5. Fallback if the AI fails\n  return {\n    ...$node[\"Google Form Trigger\"].json,\n    score: 0,\n    decision: \"Fail\",\n    error_msg: \"AI returned invalid JSON\"\n  };\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        304
+      ],
+      "id": "66288cf9-5dd8-4863-9acf-3a020fb6acd7",
+      "name": "filter"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node[\"Google Form Trigger\"].json[\"email\"] }}",
+        "subject": "Next Step: Assessment",
+        "message": "=sry, {{ $json[\"full name\"] }}, your resume scored {{ $json.score }}%. you are not shortlisted fix your resume and improve your skills, better luck next time.",
+        "options": {}
+      },
+      "id": "68bfd3a2-ef37-4a77-9fd9-628ec765aef7",
+      "name": "not shortlisted",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        272,
+        384
+      ],
+      "webhookId": "173d91d2-50e6-43ec-aa84-94ca4b610951",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "sWPTeDRp3IX8NPL6",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/17b0eK--mqtqAZ_PZvr3jbKFUdC7PBfz0vTmtllfHFq0/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "896ad4bf-af3c-4c54-8dba-ad8d46d06782",
+      "name": "Google Form Trigger",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        304
+      ],
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "AzEUays8KlTxPc97",
+          "name": "Google Sheets Trigger account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Download Resume PDF": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "AI ATS Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI ATS Agent": {
+      "main": [
+        [
+          {
+            "node": "filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ATS Pass?": {
+      "main": [
+        [
+          {
+            "node": "Send Assessment Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "not shortlisted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI ATS Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Assessment Email": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filter": {
+      "main": [
+        [
+          {
+            "node": "ATS Pass?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Form Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download Resume PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0111d523-e71c-4f53-98b2-dd01d5c52c7b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7fba4ebfe2a0897f9a9bb842baf2575c8091c65703296c756f2e0fc64e924fc0"
+  },
+  "id": "3mRaHHMZgutHQTgq",
+  "tags": []
+}
